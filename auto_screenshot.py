@@ -49,7 +49,7 @@ class AutoScreenshot:
             image: numpy配列の画像データ (BGR)
 
         Returns:
-            bool: 枠が検出されたらTrue
+            tuple: (検出されたか, マッチしたピクセル数, 全体ピクセル数, 検出割合%)
         """
         # 色範囲を定義
         lower_bound = np.maximum(self.target_color - self.color_tolerance, 0)
@@ -68,8 +68,9 @@ class AutoScreenshot:
 
         # 枠として検出する閾値（全体の0.1%以上）
         threshold = total_pixels * 0.001
+        percentage = (color_pixels / total_pixels) * 100
 
-        return color_pixels > threshold
+        return (color_pixels > threshold, color_pixels, total_pixels, percentage)
 
     def capture_screen(self):
         """画面をキャプチャして返す"""
@@ -114,6 +115,7 @@ class AutoScreenshot:
 
         start_time = time.time()
         last_detected = False
+        check_count = 0
 
         try:
             while True:
@@ -125,28 +127,43 @@ class AutoScreenshot:
                 img_pil, img_cv = self.capture_screen()
 
                 # 色の枠を検出
-                is_detected = self.detect_color_frame(img_cv)
+                is_detected, color_pixels, total_pixels, percentage = self.detect_color_frame(img_cv)
                 current_time = time.time()
+                check_count += 1
+
+                # 検出状態を表示（毎回）
+                timestamp = datetime.now().strftime("%H:%M:%S")
+                if is_detected:
+                    status_msg = f"[{timestamp}] ✓ 検出中 | マッチ: {color_pixels:,}px ({percentage:.3f}%)"
+                else:
+                    status_msg = f"[{timestamp}] ○ 監視中 | マッチ: {color_pixels:,}px ({percentage:.3f}%)"
+
+                print(status_msg, end='\r')  # 同じ行に上書き表示
 
                 # 検出ロジック：検出してから15秒後に撮影
                 if is_detected:
                     if not last_detected:
                         # 新しく検出された
                         self.first_detection_time = current_time
-                        print(f"検出！ 15秒後に撮影します...")
+                        print(f"\n🎯 検出！ 15秒後に撮影します...")
                     elif self.first_detection_time is not None:
                         # 検出が継続中
                         elapsed = current_time - self.first_detection_time
+                        remaining = 15.0 - elapsed
+                        if remaining > 0:
+                            print(f"[{timestamp}] ⏳ 撮影まで {remaining:.1f}秒 | マッチ: {color_pixels:,}px ({percentage:.3f}%)", end='\r')
+
                         if elapsed >= 15.0:  # 15秒経過
                             # 前回の撮影から60秒以上経過していれば撮影
                             if current_time - self.last_detection_time > 60.0:
+                                print()  # 改行
                                 self.save_screenshot(img_pil)
                                 self.last_detection_time = current_time
                             self.first_detection_time = None  # リセット
                 else:
                     # 検出されなくなった（撮影前に色が消えた）
                     if self.first_detection_time is not None and last_detected:
-                        print(f"✗ 撮影キャンセル（色が消えました）")
+                        print(f"\n✗ 撮影キャンセル（色が消えました）")
                     self.first_detection_time = None
 
                 last_detected = is_detected

@@ -122,4 +122,4 @@ MIT License
 
 ## 作者
 
-Created with Claude Code
+関根禎浩
